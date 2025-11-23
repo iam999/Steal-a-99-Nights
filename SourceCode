@@ -196,7 +196,7 @@ local function makeTab(name, text, order)
 end
 
 local homeBtn     = makeTab("HomeButton", "Home", 1)
-local survivalBtn = makeTab("SurvivalButton", "Stealingw", 2)
+local survivalBtn = makeTab("SurvivalButton", "Stealing", 2)
 local basesBtn    = makeTab("BasesButton", "Bases", 3)
 
 -----------------------------------------------------
