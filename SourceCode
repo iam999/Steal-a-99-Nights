@@ -1,0 +1,625 @@
+---- The Spot Inc
+---- U can now hide ur friends base 
+---- Good Travels gamers :D
+
+
+--[[
+    Survival Admin Menu (Same Style) + Sort + Bases Filter Tab
+    ----------------------------------------------------------
+    Tabs:
+      - Home
+      - Survival (scanner list w/ sort by price or base)
+      - Bases (hide/show bases FROM SURVIVAL LIST ONLY)
+
+    Scan Path:
+      workspace.Bases.Base1..Base8.Slots.Slot#.Children
+
+    Ignore:
+      Deco, Collect, Spawn, Configuration
+
+    Display:
+      Price + Rarity from:
+        HumanoidRootPart > ThingAttachment > ThingGui > (Price, Rarity)
+
+    Teleport:
+      Teleports to item, returns after 3 seconds.
+
+    Sort Buttons (Survival tab):
+      - Sort by Price (High→Low) [supports k/m/b]
+      - Sort by Base (Base -> Slot -> Name)
+
+    Bases Tab:
+      - Toggle whether Base1..Base8 appears in Survival list.
+      - NO world visibility changes.
+
+    Auto refresh:
+      Every 2 seconds (keeps sort + base filters).
+--]]
+
+-----------------------------------------------------
+-- SERVICES
+-----------------------------------------------------
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-----------------------------------------------------
+-- SETTINGS / FOLDERS
+-----------------------------------------------------
+local basesFolder = workspace:WaitForChild("Bases")
+
+local IGNORE = {
+	Deco = true,
+	Collect = true,
+	Spawn = true,
+	Configuration = true
+}
+
+-----------------------------------------------------
+-- STATE
+-----------------------------------------------------
+local hiddenBases = {}  -- [ "Base1" ] = true means HIDE FROM SURVIVAL LIST
+for i = 1,8 do
+	hiddenBases["Base"..i] = false
+end
+
+-----------------------------------------------------
+-- CLEAN OLD VERSION
+-----------------------------------------------------
+local old = playerGui:FindFirstChild("SurvivalAdminMenu")
+if old then old:Destroy() end
+
+-----------------------------------------------------
+-- GUI CREATION (SAME STYLE)
+-----------------------------------------------------
+local gui = Instance.new("ScreenGui")
+gui.Name = "SurvivalAdminMenu"
+gui.ResetOnSpawn = false
+gui.Parent = playerGui
+
+local main = Instance.new("Frame")
+main.Name = "Main"
+main.Size = UDim2.new(0, 620, 0, 380)
+main.Position = UDim2.new(0.5, -310, 0.5, -190)
+main.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+main.BorderSizePixel = 0
+main.Active = true
+main.Parent = gui
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 12)
+
+-----------------------------------------------------
+-- TITLE BAR
+-----------------------------------------------------
+local titleBar = Instance.new("Frame")
+titleBar.Name = "TitleBar"
+titleBar.Size = UDim2.new(1, 0, 0, 34)
+titleBar.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+titleBar.BorderSizePixel = 0
+titleBar.Parent = main
+Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 12)
+
+local titleText = Instance.new("TextLabel")
+titleText.BackgroundTransparency = 1
+titleText.Size = UDim2.new(1, -60, 1, 0)
+titleText.Position = UDim2.new(0, 10, 0, 0)
+titleText.Font = Enum.Font.SourceSansBold
+titleText.TextSize = 18
+titleText.TextXAlignment = Enum.TextXAlignment.Left
+titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleText.Text = "BigSigma42's Steal Uncontacted Tribe Simulator (99 Nights)"
+titleText.Parent = titleBar
+
+-- Exit button
+local exitBtn = Instance.new("TextButton")
+exitBtn.Name = "ExitButton"
+exitBtn.Size = UDim2.new(0, 32, 0, 26)
+exitBtn.Position = UDim2.new(1, -40, 0, 4)
+exitBtn.Text = "X"
+exitBtn.TextSize = 18
+exitBtn.Font = Enum.Font.SourceSansBold
+exitBtn.BackgroundColor3 = Color3.fromRGB(150, 40, 40)
+exitBtn.TextColor3 = Color3.new(1, 1, 1)
+exitBtn.BorderSizePixel = 0
+exitBtn.Parent = titleBar
+Instance.new("UICorner", exitBtn).CornerRadius = UDim.new(0, 6)
+
+exitBtn.MouseButton1Click:Connect(function()
+	gui.Enabled = false
+end)
+
+-----------------------------------------------------
+-- DRAGGING WINDOW
+-----------------------------------------------------
+local dragging = false
+local dragStart, startPos, dragInput
+
+titleBar.InputBegan:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = i.Position
+		startPos = main.Position
+
+		i.Changed:Connect(function()
+			if i.UserInputState == Enum.UserInputState.End then dragging = false end
+		end)
+	end
+end)
+
+titleBar.InputChanged:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseMovement then dragInput = i end
+end)
+
+UserInputService.InputChanged:Connect(function(i)
+	if i == dragInput and dragging then
+		local delta = i.Position - dragStart
+		main.Position = UDim2.new(
+			startPos.X.Scale, startPos.X.Offset + delta.X,
+			startPos.Y.Scale, startPos.Y.Offset + delta.Y
+		)
+	end
+end)
+
+-----------------------------------------------------
+-- LEFT TABS
+-----------------------------------------------------
+local tabs = Instance.new("Frame")
+tabs.Name = "Tabs"
+tabs.Size = UDim2.new(0, 140, 1, -34)
+tabs.Position = UDim2.new(0, 0, 0, 34)
+tabs.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+tabs.BorderSizePixel = 0
+tabs.Parent = main
+Instance.new("UICorner", tabs).CornerRadius = UDim.new(0, 12)
+
+local tabLayout = Instance.new("UIListLayout")
+tabLayout.Padding = UDim.new(0, 6)
+tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+tabLayout.Parent = tabs
+
+local function makeTab(name, text, order)
+	local b = Instance.new("TextButton")
+	b.Name = name
+	b.Size = UDim2.new(1, -10, 0, 38)
+	b.Position = UDim2.new(0, 5, 0, 0)
+	b.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+	b.BorderSizePixel = 0
+	b.Font = Enum.Font.SourceSansBold
+	b.TextSize = 16
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Text = text
+	b.LayoutOrder = order
+	b.Parent = tabs
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+	return b
+end
+
+local homeBtn     = makeTab("HomeButton", "Home", 1)
+local survivalBtn = makeTab("SurvivalButton", "Stealingw", 2)
+local basesBtn    = makeTab("BasesButton", "Bases", 3)
+
+-----------------------------------------------------
+-- PAGES CONTAINER
+-----------------------------------------------------
+local pages = Instance.new("Frame")
+pages.Name = "Pages"
+pages.Size = UDim2.new(1, -140, 1, -34)
+pages.Position = UDim2.new(0, 140, 0, 34)
+pages.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+pages.BorderSizePixel = 0
+pages.Parent = main
+Instance.new("UICorner", pages).CornerRadius = UDim.new(0, 12)
+
+local function makePage(name)
+	local p = Instance.new("Frame")
+	p.Name = name
+	p.Size = UDim2.new(1, 0, 1, 0)
+	p.BackgroundTransparency = 1
+	p.Visible = false
+	p.Parent = pages
+	return p
+end
+
+local homePage     = makePage("HomePage")
+local survivalPage = makePage("SurvivalPage")
+local basesPage    = makePage("BasesPage")
+
+local function switchPage(btn, page)
+	for _, b in ipairs(tabs:GetChildren()) do
+		if b:IsA("TextButton") then b.BackgroundColor3 = Color3.fromRGB(45,45,45) end
+	end
+	btn.BackgroundColor3 = Color3.fromRGB(80,80,80)
+
+	for _, p in ipairs(pages:GetChildren()) do
+		if p:IsA("Frame") then p.Visible = (p == page) end
+	end
+end
+
+homeBtn.MouseButton1Click:Connect(function() switchPage(homeBtn, homePage) end)
+survivalBtn.MouseButton1Click:Connect(function() switchPage(survivalBtn, survivalPage) end)
+basesBtn.MouseButton1Click:Connect(function() switchPage(basesBtn, basesPage) end)
+switchPage(homeBtn, homePage)
+
+-----------------------------------------------------
+-- HOME CONTENT
+-----------------------------------------------------
+local profile = Instance.new("ImageLabel")
+profile.Size = UDim2.new(0,120,0,120)
+profile.Position = UDim2.new(0,25,0,40)
+profile.BackgroundColor3 = Color3.fromRGB(60,60,60)
+profile.BorderSizePixel = 0
+profile.Parent = homePage
+Instance.new("UICorner", profile).CornerRadius = UDim.new(0,12)
+
+local welcome = Instance.new("TextLabel")
+welcome.Size = UDim2.new(1,-180,0,40)
+welcome.Position = UDim2.new(0,160,0,60)
+welcome.BackgroundTransparency = 1
+welcome.Font = Enum.Font.SourceSansBold
+welcome.TextSize = 26
+welcome.TextColor3 = Color3.new(1,1,1)
+welcome.TextXAlignment = Enum.TextXAlignment.Left
+welcome.Parent = homePage
+
+profile.Image = Players:GetUserThumbnailAsync(
+	player.UserId,
+	Enum.ThumbnailType.HeadShot,
+	Enum.ThumbnailSize.Size180x180
+)
+welcome.Text = "Welcome, " .. player.Name
+
+-----------------------------------------------------
+-- SURVIVAL UI (SORT BUTTONS + SCROLL)
+-----------------------------------------------------
+local sortMode = "BASE" -- "BASE" or "PRICE"
+
+local sortPriceBtn = Instance.new("TextButton")
+sortPriceBtn.Size = UDim2.new(0,170,0,30)
+sortPriceBtn.Position = UDim2.new(1,-350,0,8)
+sortPriceBtn.BackgroundColor3 = Color3.fromRGB(55,55,55)
+sortPriceBtn.BorderSizePixel = 0
+sortPriceBtn.Font = Enum.Font.SourceSansBold
+sortPriceBtn.TextSize = 14
+sortPriceBtn.TextColor3 = Color3.new(1,1,1)
+sortPriceBtn.Text = "Sort by Price"
+sortPriceBtn.Parent = survivalPage
+Instance.new("UICorner", sortPriceBtn).CornerRadius = UDim.new(0,6)
+
+local sortBaseBtn = Instance.new("TextButton")
+sortBaseBtn.Size = UDim2.new(0,170,0,30)
+sortBaseBtn.Position = UDim2.new(1,-175,0,8)
+sortBaseBtn.BackgroundColor3 = Color3.fromRGB(80,110,80)
+sortBaseBtn.BorderSizePixel = 0
+sortBaseBtn.Font = Enum.Font.SourceSansBold
+sortBaseBtn.TextSize = 14
+sortBaseBtn.TextColor3 = Color3.new(1,1,1)
+sortBaseBtn.Text = "Sort by Base"
+sortBaseBtn.Parent = survivalPage
+Instance.new("UICorner", sortBaseBtn).CornerRadius = UDim.new(0,6)
+
+local function updateSortButtonStyles()
+	if sortMode == "BASE" then
+		sortBaseBtn.BackgroundColor3 = Color3.fromRGB(80,110,80)
+		sortPriceBtn.BackgroundColor3 = Color3.fromRGB(55,55,55)
+	else
+		sortPriceBtn.BackgroundColor3 = Color3.fromRGB(80,110,80)
+		sortBaseBtn.BackgroundColor3 = Color3.fromRGB(55,55,55)
+	end
+end
+
+local scroll = Instance.new("ScrollingFrame")
+scroll.Size = UDim2.new(1,-10,1,-45)
+scroll.Position = UDim2.new(0,5,0,40)
+scroll.BackgroundColor3 = Color3.fromRGB(30,30,30)
+scroll.BorderSizePixel = 0
+scroll.ScrollBarThickness = 6
+scroll.CanvasSize = UDim2.new(0,0,0,0)
+scroll.Parent = survivalPage
+Instance.new("UICorner", scroll).CornerRadius = UDim.new(0,8)
+
+local listLayout = Instance.new("UIListLayout")
+listLayout.Padding = UDim.new(0,5)
+listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+listLayout.Parent = scroll
+listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+	scroll.CanvasSize = UDim2.new(0,0,0,listLayout.AbsoluteContentSize.Y + 10)
+end)
+
+-----------------------------------------------------
+-- BASES UI (FILTER TAB)
+-----------------------------------------------------
+local basesScroll = Instance.new("ScrollingFrame")
+basesScroll.Size = UDim2.new(1,-10,1,-10)
+basesScroll.Position = UDim2.new(0,5,0,5)
+basesScroll.BackgroundColor3 = Color3.fromRGB(30,30,30)
+basesScroll.BorderSizePixel = 0
+basesScroll.ScrollBarThickness = 6
+basesScroll.CanvasSize = UDim2.new(0,0,0,0)
+basesScroll.Parent = basesPage
+Instance.new("UICorner", basesScroll).CornerRadius = UDim.new(0,8)
+
+local basesLayout = Instance.new("UIListLayout")
+basesLayout.Padding = UDim.new(0,6)
+basesLayout.SortOrder = Enum.SortOrder.LayoutOrder
+basesLayout.Parent = basesScroll
+basesLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+	basesScroll.CanvasSize = UDim2.new(0,0,0,basesLayout.AbsoluteContentSize.Y + 10)
+end)
+
+-----------------------------------------------------
+-- HELPERS
+-----------------------------------------------------
+local function clearScroll(sf)
+	for _, child in ipairs(sf:GetChildren()) do
+		if not child:IsA("UIListLayout") then child:Destroy() end
+	end
+end
+
+-----------------------------------------------------
+-- TELEPORT SUPPORT
+-----------------------------------------------------
+local function getModelCFrame(obj)
+	if not obj then return nil end
+	if obj:IsA("BasePart") then return obj.CFrame end
+	if obj:IsA("Model") then
+		if obj.PrimaryPart then return obj.PrimaryPart.CFrame end
+		for _, d in ipairs(obj:GetDescendants()) do
+			if d:IsA("BasePart") then return d.CFrame end
+		end
+		local ok, pivot = pcall(function() return obj:GetPivot() end)
+		if ok then return pivot end
+	end
+	return nil
+end
+
+local teleportToken = 0
+local function teleportTo(obj)
+	local char = player.Character
+	if not char then return end
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	local cf = getModelCFrame(obj)
+	if not cf then return end
+
+	teleportToken += 1
+	local myToken = teleportToken
+	local original = hrp.CFrame
+
+	hrp.CFrame = cf + Vector3.new(0,5,0)
+
+	task.delay(3, function()
+		if myToken ~= teleportToken then return end
+		if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+			player.Character.HumanoidRootPart.CFrame = original
+		end
+	end)
+end
+
+-----------------------------------------------------
+-- PRICE + RARITY READ
+-----------------------------------------------------
+local function getPriceAndRarity(itemObj)
+	local priceText, rarityText = "?", "?"
+
+	local hrp = itemObj:IsA("Model") and itemObj:FindFirstChild("HumanoidRootPart", true)
+	if not hrp or not hrp:IsA("BasePart") then return priceText, rarityText end
+
+	local attach = hrp:FindFirstChild("ThingAttachment")
+	if not attach or not attach:IsA("Attachment") then return priceText, rarityText end
+
+	local guiObj = attach:FindFirstChild("ThingGui")
+	if not guiObj then return priceText, rarityText end
+
+	local priceLabel = guiObj:FindFirstChild("Price", true)
+	local rarityLabel = guiObj:FindFirstChild("Rarity", true)
+
+	if priceLabel and priceLabel:IsA("TextLabel") then priceText = priceLabel.Text end
+	if rarityLabel and rarityLabel:IsA("TextLabel") then rarityText = rarityLabel.Text end
+
+	return priceText, rarityText
+end
+
+-- supports k/m/b
+local function parsePriceNumber(priceText)
+	if not priceText then return nil end
+	local s = tostring(priceText):lower():gsub(",", ""):gsub("%s+", "")
+	local numStr, suffix = s:match("([%-]?%d*%.?%d+)([kmb]?)")
+	if not numStr then return nil end
+	local n = tonumber(numStr)
+	if not n then return nil end
+
+	local mult = 1
+	if suffix == "k" then mult = 1000
+	elseif suffix == "m" then mult = 1000000
+	elseif suffix == "b" then mult = 1000000000 end
+
+	return n * mult
+end
+
+-----------------------------------------------------
+-- SURVIVAL LIST ENTRY
+-----------------------------------------------------
+local function makeEntry(displayText, itemObj)
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1,-5,0,46)
+	row.BackgroundColor3 = Color3.fromRGB(45,45,45)
+	row.BorderSizePixel = 0
+	row.Parent = scroll
+	Instance.new("UICorner", row).CornerRadius = UDim.new(0,6)
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(0.68,0,1,0)
+	label.Position = UDim2.new(0,8,0,0)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.SourceSansSemibold
+	label.TextSize = 14
+	label.TextColor3 = Color3.new(1,1,1)
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextWrapped = true
+	label.Text = displayText
+	label.Parent = row
+
+	local tpBtn = Instance.new("TextButton")
+	tpBtn.Size = UDim2.new(0.28,-10,0.7,0)
+	tpBtn.Position = UDim2.new(0.72,0,0.15,0)
+	tpBtn.BackgroundColor3 = Color3.fromRGB(70,130,255)
+	tpBtn.BorderSizePixel = 0
+	tpBtn.Font = Enum.Font.SourceSansBold
+	tpBtn.TextSize = 14
+	tpBtn.TextColor3 = Color3.new(1,1,1)
+	tpBtn.Text = "Teleport"
+	tpBtn.Parent = row
+	Instance.new("UICorner", tpBtn).CornerRadius = UDim.new(0,6)
+
+	tpBtn.MouseButton1Click:Connect(function()
+		teleportTo(itemObj)
+	end)
+end
+
+-----------------------------------------------------
+-- SCAN + SORT + BUILD SURVIVAL LIST
+-----------------------------------------------------
+local function scanForItems()
+	clearScroll(scroll)
+
+	local entries = {}
+
+	for i = 1,8 do
+		local baseName = "Base"..i
+		if not hiddenBases[baseName] then  -- << FILTER HERE
+			local base = basesFolder:FindFirstChild(baseName)
+			if base then
+				local slots = base:FindFirstChild("Slots")
+				if slots then
+					for _, slot in ipairs(slots:GetChildren()) do
+						if slot.Name:match("^Slot%d+") then
+							for _, item in ipairs(slot:GetChildren()) do
+								if not IGNORE[item.Name] then
+									local priceText, rarityText = getPriceAndRarity(item)
+									local priceNum = parsePriceNumber(priceText)
+
+									table.insert(entries, {
+										baseIndex = i,
+										slotName = slot.Name,
+										itemName = item.Name,
+										itemObj = item,
+										priceText = priceText,
+										rarityText = rarityText,
+										priceNum = priceNum
+									})
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+
+	-- Sort
+	if sortMode == "BASE" then
+		table.sort(entries, function(a,b)
+			if a.baseIndex ~= b.baseIndex then return a.baseIndex < b.baseIndex end
+			if a.slotName ~= b.slotName then return a.slotName < b.slotName end
+			return a.itemName < b.itemName
+		end)
+	else
+		table.sort(entries, function(a,b)
+			local ap = a.priceNum or -math.huge
+			local bp = b.priceNum or -math.huge
+			if ap ~= bp then return ap > bp end
+			if a.baseIndex ~= b.baseIndex then return a.baseIndex < b.baseIndex end
+			return a.itemName < b.itemName
+		end)
+	end
+
+	for _, e in ipairs(entries) do
+		local displayText = ("Base%d | %s | %s\nPrice: %s | Rarity: %s")
+			:format(e.baseIndex, e.slotName, e.itemName, e.priceText, e.rarityText)
+		makeEntry(displayText, e.itemObj)
+	end
+end
+
+-----------------------------------------------------
+-- BUILD BASES FILTER TAB
+-----------------------------------------------------
+local function buildBasesTab()
+	clearScroll(basesScroll)
+
+	for i = 1,8 do
+		local baseName = "Base"..i
+
+		local row = Instance.new("Frame")
+		row.Size = UDim2.new(1,-10,0,40)
+		row.BackgroundColor3 = Color3.fromRGB(45,45,45)
+		row.BorderSizePixel = 0
+		row.Parent = basesScroll
+		Instance.new("UICorner", row).CornerRadius = UDim.new(0,6)
+
+		local label = Instance.new("TextLabel")
+		label.BackgroundTransparency = 1
+		label.Size = UDim2.new(0.6,0,1,0)
+		label.Position = UDim2.new(0,8,0,0)
+		label.Font = Enum.Font.SourceSansSemibold
+		label.TextSize = 16
+		label.TextColor3 = Color3.new(1,1,1)
+		label.TextXAlignment = Enum.TextXAlignment.Left
+		label.Text = baseName
+		label.Parent = row
+
+		local toggle = Instance.new("TextButton")
+		toggle.Size = UDim2.new(0.32,0,0.75,0)
+		toggle.Position = UDim2.new(0.65,0,0.125,0)
+		toggle.BorderSizePixel = 0
+		toggle.Font = Enum.Font.SourceSansBold
+		toggle.TextSize = 15
+		toggle.TextColor3 = Color3.new(1,1,1)
+		toggle.Parent = row
+		Instance.new("UICorner", toggle).CornerRadius = UDim.new(0,6)
+
+		local function refresh()
+			if hiddenBases[baseName] then
+				toggle.Text = "Show"
+				toggle.BackgroundColor3 = Color3.fromRGB(70,130,255)
+			else
+				toggle.Text = "Hide"
+				toggle.BackgroundColor3 = Color3.fromRGB(120,60,60)
+			end
+		end
+		refresh()
+
+		toggle.MouseButton1Click:Connect(function()
+			hiddenBases[baseName] = not hiddenBases[baseName]
+			refresh()
+			pcall(scanForItems) -- instant update to Survival list
+		end)
+	end
+end
+
+-----------------------------------------------------
+-- BUTTON EVENTS
+-----------------------------------------------------
+sortPriceBtn.MouseButton1Click:Connect(function()
+	sortMode = "PRICE"
+	updateSortButtonStyles()
+	pcall(scanForItems)
+end)
+
+sortBaseBtn.MouseButton1Click:Connect(function()
+	sortMode = "BASE"
+	updateSortButtonStyles()
+	pcall(scanForItems)
+end)
+
+-----------------------------------------------------
+-- AUTO UPDATE
+-----------------------------------------------------
+task.spawn(function()
+	buildBasesTab()
+	while true do
+		pcall(scanForItems)
+		task.wait(2)
+	end
+end)
